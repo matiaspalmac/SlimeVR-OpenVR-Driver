@@ -71,6 +71,12 @@ private:
       IVRDevice::MakeDefaultPose();
   std::optional<vr::DriverPose_t> smoothed_pose_;
   bool last_frame_had_external_ = false;
+  // Hysteresis state: require N consecutive frames of disagreement before
+  // flipping the confirmed source. Prevents single-frame hand-tracking
+  // dropouts at FOV edge from triggering visible pose-source swaps.
+  bool confirmed_had_external_ = false;
+  int external_swap_pending_frames_ = 0;
+  static constexpr int kExternalSwapHysteresisFrames = 4;
   static vr::DriverPose_t LerpPose(const vr::DriverPose_t &from,
                                    const vr::DriverPose_t &to, float t);
 

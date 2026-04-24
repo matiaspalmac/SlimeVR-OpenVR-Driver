@@ -125,18 +125,30 @@ void SlimeVRDriver::TrackerDevice::Update() {
                                                 merged_trigger_click, 0);
   }
 
-  // Target pose: controllers use external (VD/Steam Link) when available else SlimeVR; trackers use last SlimeVR pose.
-  vr::DriverPose_t target = last_pose_atomic_.load();
+  // Hysteresis: only flip the confirmed source after N consecutive frames of
+  // disagreement with the raw signal. Masks momentary hand-tracking blips.
   if (is_controller_) {
+    if (have_external == confirmed_had_external_) {
+      external_swap_pending_frames_ = 0;
+    } else if (++external_swap_pending_frames_ >= kExternalSwapHysteresisFrames) {
+      confirmed_had_external_ = have_external;
+      external_swap_pending_frames_ = 0;
+    }
+  }
+
+  // Target pose: controllers use external (VD/Steam Link) when the confirmed
+  // source says so; otherwise SlimeVR. Trackers use last SlimeVR pose.
+  vr::DriverPose_t target = last_pose_atomic_.load();
+  if (is_controller_ && confirmed_had_external_) {
     auto external = GetDriver()->GetExternalPoseForHand(is_left_hand_);
     if (external.has_value())
       target = *external;
   }
-  // Use slower lerp when swapping VD ↔ SlimeVR to smooth the transition.
+  // Slower lerp the frame the confirmed source flips, to smooth the handoff.
   float lerp_t = GetDriver()->GetPoseLerpSpeed();
-  if (is_controller_ && (have_external != last_frame_had_external_))
+  if (is_controller_ && (confirmed_had_external_ != last_frame_had_external_))
     lerp_t = GetDriver()->GetPoseLerpSpeedOnSwap();
-  last_frame_had_external_ = have_external;
+  last_frame_had_external_ = confirmed_had_external_;
   if (!smoothed_pose_.has_value())
     smoothed_pose_ = target;
   else
